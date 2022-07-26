@@ -1,4 +1,10 @@
-import React, { CSSProperties, ReactNode, useRef, useEffect } from 'react';
+import React, {
+  CSSProperties,
+  ReactNode,
+  useRef,
+  useEffect,
+  useCallback
+} from 'react';
 import { Alignment } from './types';
 
 const getSlideWidth = (count: number, wrapAround?: boolean): string =>
@@ -112,7 +118,8 @@ const Slide = ({
   cellAlign,
   onVisibleSlideHeightChange,
   adaptiveHeight,
-  initializedAdaptiveHeight
+  initializedAdaptiveHeight,
+  slideClassName
 }: {
   count: number;
   children: ReactNode | ReactNode[];
@@ -134,6 +141,7 @@ const Slide = ({
   onVisibleSlideHeightChange: (index: number, height: number | null) => unknown;
   adaptiveHeight: boolean;
   initializedAdaptiveHeight: boolean;
+  slideClassName: string | undefined;
 }): JSX.Element => {
   const customIndex = wrapAround
     ? generateIndex(index, count, typeOfSlide)
@@ -147,42 +155,57 @@ const Slide = ({
 
   const slideRef = useRef<HTMLDivElement>(null);
 
-  const prevIsVisibleRef = useRef(false);
-  useEffect(() => {
+  const prevSlideHeight = useRef<number | null>(null);
+
+  const handleHeightOrVisibilityChange = useCallback(() => {
     const node = slideRef.current;
+
     if (node) {
-      const slideHeight = node.getBoundingClientRect()?.height;
       if (isVisible) {
         node.removeAttribute('inert');
       } else {
         node.setAttribute('inert', 'true');
       }
 
-      const prevIsVisible = prevIsVisibleRef.current;
-      if (isVisible && !prevIsVisible) {
+      const slideHeight = isVisible
+        ? node.getBoundingClientRect().height
+        : null;
+
+      if (slideHeight !== prevSlideHeight.current) {
+        prevSlideHeight.current = slideHeight;
         onVisibleSlideHeightChange(customIndex, slideHeight);
-      } else if (!isVisible && prevIsVisible) {
-        onVisibleSlideHeightChange(customIndex, null);
       }
-
-      prevIsVisibleRef.current = isVisible;
     }
-  }, [
-    adaptiveHeight,
-    customIndex,
-    isVisible,
-    onVisibleSlideHeightChange,
-    slidesToShow
-  ]);
+  }, [customIndex, isVisible, onVisibleSlideHeightChange]);
 
-  const currentSlideClass = isCurrentSlide && isVisible ? ' slide-current' : '';
+  // Update status if any dependencies change
+  useEffect(() => {
+    handleHeightOrVisibilityChange();
+  }, [handleHeightOrVisibilityChange]);
+
+  // Also allow for re-measuring height even if none of the props or state
+  // changes. This is useful if a carousel item is expandable.
+  useEffect(() => {
+    const node = slideRef.current;
+    if (node && typeof ResizeObserver !== 'undefined') {
+      const resizeObserver = new ResizeObserver(handleHeightOrVisibilityChange);
+      resizeObserver.observe(node);
+      return () => resizeObserver.disconnect();
+    }
+  }, [handleHeightOrVisibilityChange]);
 
   return (
     <div
       ref={slideRef}
-      className={`slide${currentSlideClass}${
-        typeOfSlide ? ` ${typeOfSlide}` : ''
-      }${isVisible ? ' slide-visible' : ''}`}
+      className={[
+        'slide',
+        isCurrentSlide && isVisible && 'slide-current',
+        typeOfSlide,
+        isVisible && 'slide-visible',
+        slideClassName
+      ]
+        .filter((value) => value)
+        .join(' ')}
       style={getSlideStyles(
         count,
         isCurrentSlide,
